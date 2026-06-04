@@ -1,87 +1,57 @@
-from environment.departurehall import DepartureHall
-from simulator.generateuserevent import GenerateUserEvent, GenerateUserEventM3
-from simulator.endofservice import EndOfService
-from simulator.endofservice import EndOfServiceM3
+import numpy as np
 from sortedcontainers import SortedList
-
+from environment.enodeb import eNodeB
+from simulator.ue_arrival_event import UEArrivalEvent
+from simulator.scheduler_event import SchedulerEvent
 
 class MainLoop:
 
-    departure_hall:DepartureHall
-
-
-
-    
-    event_list:SortedList
-
-    def __init__(self) -> None:
-        self.departure_hall = DepartureHall()
+    def __init__(self):
+        self.network    = eNodeB()
         self.event_list = SortedList(key=lambda x: x.time)
 
-    def runM1(self, max_time):
-        time=0
-        time2TPG=self.departure_hall.getTPG()
-        time2TPW=[-1,-1,-1]
-        while time < max_time:
-            no_event=False
-            while no_event == False:
-                no_event=True
-                if time==time2TPG:
-                    id = self.departure_hall.generate_client()
-                    print(f'Generated client with id {id}')
-                    time2TPG=self.departure_hall.getTPG()+time
-                    no_event=False
-                for xx in range(self.departure_hall.no_service_Desks):
-                    if time==time2TPW[xx]:
-                        self.departure_hall.removeClientFromServiceDesk(xx)
-                        time2TPW[xx]=-1
-                        no_event=False
+    def run(self, lam: float, max_time: float) -> dict:
+        """
+        Uruchamia symulację dla danej intensywności λ [1/ms].
+        Zwraca słownik ze statystykami.
+        """
+        self.network.initialize()
+        self.event_list.clear()
 
-                any_free, service_desk_id = self.departure_hall.findFreeServiceDesk()
-                if any_free and self.departure_hall.isAnyClient():
-                    self.departure_hall.putClientToServiceDesk(service_desk_id)
-                    time2TPW[service_desk_id] = time+self.departure_hall.getTPW()
-                    no_event=False
+        # pierwsze zdarzenia startowe
+        first_arrival = np.random.exponential(1.0 / lam)
+        self.event_list.add(UEArrivalEvent(time=first_arrival, lam=lam))
+        self.event_list.add(SchedulerEvent(time=eNodeB.S))
 
-            # increase time - TBD more effectively
-            time=time+1
-
-
-
-    def runM2(self, max_time):
-
-        self.departure_hall.initialize()
-        self.event_list.add(GenerateUserEvent(time=0))
-
-        # MAIN LOOP
-        time=0
-        while time < max_time:
-            time = self.event_list[0].time
-            print(f'Simulation time:{time} ms')
+        # główna pętla
+        while self.event_list:
             event = self.event_list.pop(index=0)
-            event.execute(self.departure_hall, self.event_list)
+            if event.time > max_time:
+                break
+            event.execute(self.network, self.event_list)
 
-    def runM3(self, max_time):
+        self.network.simulation_end_time = max_time
+        return self._collect_stats(lam, max_time)
 
-        self.departure_hall.initialize()
-        self.event_list.add(GenerateUserEventM3(time=0))
+    def _collect_stats(self, lam: float, max_time: float) -> dict:
+        completed = self.network.completed_ues
 
-        # MAIN LOOP
-        time=0
-        while time < max_time:
-            time = self.event_list[0].time
-            print(f'Simulation time:{time} ms')
-            event = self.event_list.pop(index=0)
-            event.execute(self.departure_hall, self.event_list)
+        if completed:
+            avg_wait     = np.mean([c["wait_time"] for c in completed])         # ms
+            avg_user_tp  = np.mean([c["avg_tp_kbps"] for c in completed])       # kbit/ms
+            all_user_tps = [c["avg_tp_kbps"] for c in completed]
+        else:
+            avg_wait     = 0.0
+            avg_user_tp  = 0.0
+            all_user_tps = []
 
-        
-            any_free, service_desk_id = self.departure_hall.findFreeServiceDesk()
-            if any_free and self.departure_hall.isAnyClient():
-                self.departure_hall.putClientToServiceDesk(service_desk_id)
-                time_tmp = time+self.departure_hall.getTPW()
-                self.event_list.add(EndOfServiceM3(service_desk_id=service_desk_id, time=time_tmp))
+        system_tp = self.network.total_system_bits / max_time   # kbit/ms = Gbit/s * 1e-6
 
-
-
-
-
+        return {
+            "lambda"        : lam,
+            "avg_wait_ms"   : avg_wait,
+            "system_tp_kbps": system_tp,         # kbit/ms
+            "avg_user_tp_kbps": avg_user_tp,
+            "user_tps"      : all_user_tps,
+            "num_completed" : len(completed),
+        }
