@@ -7,7 +7,11 @@ class eNodeB:
     S = 1.0
     EPSILON = 0.1
 
-    def __init__(self):
+    def __init__(self, seed: int):
+        self.base_seed = seed
+        # Osobne generatory dla błędów transmisji i propagacji
+        self.rng_error = random.Random(seed)
+        self.rng_prop = random.Random(seed + 1)
         self.initialize()
 
     def initialize(self):
@@ -18,7 +22,9 @@ class eNodeB:
 
     def add_ue(self, arrival_time: float) -> int:
         self.no_users += 1
-        ue = UserEquipment(self.no_users, self.K, arrival_time)
+        # Deterministyczne ziarno dla każdego nowego UE oparte na ID
+        ue_seed = self.base_seed + 1000 + self.no_users 
+        ue = UserEquipment(self.no_users, self.K, arrival_time, ue_seed)
         self.active_ues[self.no_users] = ue
         return self.no_users
 
@@ -43,7 +49,6 @@ class eNodeB:
         alloc_counts = {ue.ue_id: 0 for ue in ues}
         allocated_rates = {ue.ue_id: 0.0 for ue in ues}
 
-        # Przydział zasobów (Algorytm Proportional Fairness)
         for k in range(self.K):
             best_ue_id = None
             best_score = -1.0
@@ -68,8 +73,8 @@ class eNodeB:
             bits_sent = rate * (self.S / 1000.0)
             ue.total_bits_received += bits_sent
 
-            # Symulacja błędów transmisji
-            if random.random() >= self.EPSILON:
+            # Błędy wyliczane z obiektowego generatora
+            if self.rng_error.random() >= self.EPSILON:
                 ue.data_received += bits_sent
                 self.total_system_bits += bits_sent
                 if ue.data_received >= ue.data_total:
@@ -79,4 +84,4 @@ class eNodeB:
 
     def update_propagation(self, ue_id: int):
         if ue_id in self.active_ues:
-            self.active_ues[ue_id].rb_rates = [random.uniform(20.0, 800.0) for _ in range(self.K)]
+            self.active_ues[ue_id].rb_rates = [self.rng_prop.uniform(20.0, 800.0) for _ in range(self.K)]

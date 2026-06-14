@@ -1,108 +1,148 @@
 import os
-import random
+import math
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-# Importujemy z naszych nowych modułów
 from simulator.main_loop import Simulator
 
-if __name__ == "__main__":
-    SIM_TIME = 100_000  # ms (100 s)
-    MAX_WAIT = 150.0  # ms – kryterium
+def compute_stats(data_list: list) -> tuple:
+    """Zwraca średnią oraz 95% przedział ufności dla listy wartości."""
+    if not data_list:
+        return 0.0, 0.0
+    n = len(data_list)
+    mean = sum(data_list) / n
+    if n <= 1:
+        return mean, 0.0
+    
+    variance = sum((x - mean) ** 2 for x in data_list) / (n - 1)
+    std_dev = math.sqrt(variance)
+    ci95 = 1.96 * (std_dev / math.sqrt(n))
+    return mean, ci95
 
-    # Zakres λ do badania
-    lambdas = [0.001, 0.005, 0.010, 0.020, 0.030, 0.050]
-               
+if __name__ == "__main__":
+    SIM_TIME = 200_000  # ms - zmiejszone na rzecz replikacji (zwiększ w miarę potrzeb)
+    MAX_WAIT = 150.0   # ms
+    REPLICATIONS = 5    # Liczba powtórzeń dla każdego punktu (do error barów)
+
+    lambdas = [0.001, 0.005, 0.010, 0.020, 0.030]
 
     results = []
-    sim = Simulator()
-
-    print(
-        f"{'λ [1/ms]':>10} | {'avg_wait [ms]':>14} | {'sys_tp [kbit/ms]':>17} | {'usr_tp [kbit/ms]':>17} | {'ukończeni':>10}")
-    print("-" * 85)
+    
+    print(f"{'λ [1/ms]':>10} | {'avg_wait [ms]':>14} ±CI | {'sys_tp [k/ms]':>14} ±CI | {'ukończeni (śr)':>14}")
+    print("-" * 80)
 
     for lam in lambdas:
-        # Zastąpienie np.random.seed standardowym
-        random.seed(1)
-        stats = sim.run(lam=lam, max_time=SIM_TIME)
-        results.append(stats)
+        wait_reps = []
+        sys_tp_reps = []
+        usr_tp_reps = []
+        completed_reps = []
+        all_user_tps_agg = [] # Do histogramu (łączymy z najlepszej lambdy)
 
-        # Wyświetlanie tabelaryczne z oznaczaniem wartości spełniających warunek
-        marker = " ✔" if stats["avg_wait_ms"] <= MAX_WAIT and stats["avg_wait_ms"] > 0 else ""
-        print(f"{lam:10.4f} | {stats['avg_wait_ms']:14.2f} | "
-              f"{stats['system_tp_kbps']:17.4f} | "
-              f"{stats['avg_user_tp_kbps']:17.4f} | "
-              f"{stats['num_completed']:10d}{marker}")
+        for rep in range(REPLICATIONS):
+            # Dynamiczne, unikalne ziarno dla każdej replikacji
+            seed = 2137 + int(lam * 1000) + rep * 13 
+            sim = Simulator(seed)
+            stats = sim.run(lam=lam, max_time=SIM_TIME)
+            
+            wait_reps.append(stats["avg_wait_ms"])
+            sys_tp_reps.append(stats["system_tp_kbps"])
+            usr_tp_reps.append(stats["avg_user_tp_kbps"])
+            completed_reps.append(stats["num_completed"])
+            all_user_tps_agg.extend(stats["user_tps"])
 
-    # Szukanie optymalnej λ (maksymalnej, ale spełniającej kryterium oczekiwania)
-    valid = [r for r in results if 0 < r["avg_wait_ms"] <= MAX_WAIT]
+        # Agregacja wyników i wyliczanie CI
+        mean_wait, ci_wait = compute_stats(wait_reps)
+        mean_sys_tp, ci_sys_tp = compute_stats(sys_tp_reps)
+        mean_usr_tp, ci_usr_tp = compute_stats(usr_tp_reps)
+        mean_comp = sum(completed_reps) / len(completed_reps)
+
+        results.append({
+            "lambda": lam,
+            "wait_mean": mean_wait, "wait_ci": ci_wait,
+            "sys_tp_mean": mean_sys_tp, "sys_tp_ci": ci_sys_tp,
+            "usr_tp_mean": mean_usr_tp, "usr_tp_ci": ci_usr_tp,
+            "num_completed": int(mean_comp),
+            "all_tps": all_user_tps_agg
+        })
+
+        marker = " ✔" if 0 < mean_wait <= MAX_WAIT else ""
+        print(f"{lam:10.4f} | {mean_wait:10.2f} ±{ci_wait:4.1f} | "
+              f"{mean_sys_tp:10.2f} ±{ci_sys_tp:4.1f} | "
+              f"{int(mean_comp):14d}{marker}")
+
+    # Szukanie optymalnej λ
+    valid = [r for r in results if 0 < r["wait_mean"] <= MAX_WAIT]
+    best = None
     if valid:
         best = max(valid, key=lambda r: r["lambda"])
         print(f"\n╔══════════════════════════════════════════════════════════╗")
         print(f"  Maksymalna λ z avg_wait ≤ {MAX_WAIT} ms:")
         print(f"  λ* = {best['lambda']:.4f} 1/ms")
-        print(f"  Przep. sys.  = {best['system_tp_kbps']:.4f} kbit/ms")
-        print(f"  Przep. usr.  = {best['avg_user_tp_kbps']:.4f} kbit/ms")
-        print(f"  Avg wait     = {best['avg_wait_ms']:.2f} ms")
-        print(f"  Ukończonych  = {best['num_completed']} UE")
+        print(f"  Avg wait     = {best['wait_mean']:.2f} ± {best['wait_ci']:.2f} ms")
         print(f"╚══════════════════════════════════════════════════════════╝")
-    else:
-        print("\n✘  Żadna λ nie spełnia kryterium. Zmniejsz λ lub zwiększ k/l.")
 
-    # Generowanie wykresów przy użyciu matplotlib
     os.makedirs("results", exist_ok=True)
     lam_vals = [r["lambda"] for r in results]
-    wait_vals = [r["avg_wait_ms"] for r in results]
-    sys_tp_vals = [r["system_tp_kbps"] for r in results]
-    usr_tp_vals = [r["avg_user_tp_kbps"] for r in results]
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-    fig.suptitle("Symulator LTE – Proportional Fairness (k=10 RB, l=3, ε=0.1)", fontsize=13, fontweight="bold")
-
-    # Wykres 1: Czas oczekiwania w funkcji λ
-    ax1 = axes[0]
-    ax1.plot(lam_vals, wait_vals, "o-", color="#01696f", linewidth=2, markersize=7, label="avg czas oczekiwania")
+    # --- Wykres 1: Czas oczekiwania + Error bars ---
+    fig1, ax1 = plt.subplots(figsize=(8, 5))
+    ax1.errorbar(lam_vals, [r["wait_mean"] for r in results], yerr=[r["wait_ci"] for r in results], 
+                 fmt="o-", color="#01696f", linewidth=2, capsize=4, label="Czas oczekiwania (95% CI)")
     ax1.axhline(MAX_WAIT, color="#a12c7b", linestyle="--", linewidth=1.8, label=f"Kryterium: {MAX_WAIT} ms")
-    if valid:
+    if best:
         ax1.axvline(best["lambda"], color="#da7101", linestyle=":", linewidth=1.5, label=f"λ* = {best['lambda']:.4f}")
+    
     ax1.set_xlabel("λ [1/ms]", fontsize=11)
     ax1.set_ylabel("Średni czas oczekiwania [ms]", fontsize=11)
-    ax1.set_title("Czas oczekiwania vs λ", fontsize=12)
-    ax1.legend(fontsize=9)
+    ax1.set_title("Czas oczekiwania vs λ (z przedziałami ufności)", fontsize=12)
+    ax1.legend()
     ax1.grid(True, alpha=0.3)
-
-    # Wykres 2: Przepływność systemu w funkcji λ
-    ax2 = axes[1]
-    ln1, = ax2.plot(lam_vals, sys_tp_vals, "s-", color="#006494", linewidth=2, markersize=7,
-                    label="Przep. systemu [kbit/ms]")
-    ax2r = ax2.twinx()
-    ln2, = ax2r.plot(lam_vals, usr_tp_vals, "^--", color="#da7101", linewidth=1.8, markersize=7,
-                     label="Przep. użytkownika [kbit/ms]")
-    ax2.set_xlabel("λ [1/ms]", fontsize=11)
-    ax2.set_ylabel("Przepływność systemu [kbit/ms]", color="#006494", fontsize=11)
-    ax2r.set_ylabel("Przep. użytkownika [kbit/ms]", color="#da7101", fontsize=11)
-    ax2.set_title("Przepływność vs λ", fontsize=12)
-    ax2.legend(handles=[ln1, ln2], fontsize=9, loc="upper left")
-    ax2.grid(True, alpha=0.3)
-
     plt.tight_layout()
-    plt.savefig("results/throughput_wait_vs_lambda.png", dpi=150, bbox_inches="tight")
+    plt.savefig("results/wait_vs_lambda_ci.png", dpi=150)
     plt.close()
-    print("\nWykres 1 zapisany: results/throughput_wait_vs_lambda.png")
 
-    # Histogram przepływności dla optymalnej lambdy
-    if valid and best["user_tps"]:
-        fig2, ax3 = plt.subplots(figsize=(8, 5))
-        ax3.hist(best["user_tps"], bins=40, color="#01696f", edgecolor="white", alpha=0.85)
-        ax3.set_xlabel("Średnia przepływność użytkownika [kbit/ms]", fontsize=11)
-        ax3.set_ylabel("Liczba użytkowników", fontsize=11)
-        ax3.set_title(
-            f"Histogram przepływności użytkowników\nλ* = {best['lambda']:.4f} 1/ms | PF Scheduler | k=10, l=3",
-            fontsize=11)
-        ax3.grid(True, alpha=0.3, axis="y")
+    # --- Wykres 2: Przepływność + Error bars ---
+    fig2, ax2 = plt.subplots(figsize=(8, 5))
+    ax2.errorbar(lam_vals, [r["sys_tp_mean"] for r in results], yerr=[r["sys_tp_ci"] for r in results],
+                 fmt="s-", color="#006494", capsize=4, label="System [kbit/ms]")
+    ax2.errorbar(lam_vals, [r["usr_tp_mean"] for r in results], yerr=[r["usr_tp_ci"] for r in results],
+                 fmt="^-", color="#da7101", capsize=4, label="Użytkownicy [kbit/ms]")
+    
+    ax2.set_xlabel("λ [1/ms]")
+    ax2.set_ylabel("Przepływność")
+    ax2.set_title("Przepływność vs λ (z przedziałami ufności)")
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig("results/throughput_vs_lambda_ci.png", dpi=150)
+    plt.close()
+
+    # --- Wykres 3: Faza Początkowa (Transient Phase) ---
+    if best:
+        print("\nGenerowanie wykresu fazy początkowej dla λ*...")
+        # Robimy pojedynczy dłuższy run, aby zapisać zmienność stanu w czasie
+        sim_transient = Simulator(seed=9999)
+        stats_transient = sim_transient.run(lam=best["lambda"], max_time=SIM_TIME, track_transient=True)
+        t_data = stats_transient["transient_data"]
+
+        fig3, ax3 = plt.subplots(figsize=(9, 4))
+        ax3.plot([t / 1000.0 for t in t_data["time"]], t_data["queue_length"], color="#a12c7b", alpha=0.85)
+        ax3.set_xlabel("Czas symulacji [s]")
+        ax3.set_ylabel("Liczba aktywnych UE (długość kolejki)")
+        ax3.set_title(f"Wykres fazy przejściowej (Warm-up) dla λ = {best['lambda']:.4f}")
+        ax3.grid(True, alpha=0.3)
         plt.tight_layout()
-        plt.savefig("results/histogram_user_throughput.png", dpi=150, bbox_inches="tight")
+        plt.savefig("results/transient_phase.png", dpi=150)
         plt.close()
-        print("Wykres 2 zapisany: results/histogram_user_throughput.png")
+        
+        # Histogram dla optymalnej
+        if best["all_tps"]:
+            fig4, ax4 = plt.subplots(figsize=(8, 5))
+            ax4.hist(best["all_tps"], bins=50, color="#01696f", edgecolor="white", alpha=0.85)
+            ax4.set_title(f"Histogram przepływności (Zestawienie z {REPLICATIONS} replikacji)")
+            plt.savefig("results/histogram_user_throughput.png", dpi=150)
+            plt.close()
+
+    print("\nWszystkie wykresy zostały wygenerowane w folderze 'results/'.")
