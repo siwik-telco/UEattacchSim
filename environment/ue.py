@@ -34,7 +34,7 @@ class UserEquipment:
         elapsed = current_time - self._arrival_time
         if elapsed <= 0 or self.total_bits_received == 0:
             return 1e-9   # bardzo mała wartość -> wysoki priorytet PF
-        return self.total_bits_received / elapsed   # kbit/ms
+        return (self.total_bits_received / elapsed) * 1000.0   # kbit/ms
 
     def is_done(self) -> bool:
         return self.data_received >= self.data_total

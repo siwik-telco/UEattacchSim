@@ -26,6 +26,7 @@ class MainLoop:
         # główna pętla
         while self.event_list:
             event = self.event_list.pop(index=0)
+
             if event.time > max_time:
                 break
             event.execute(self.network, self.event_list)
@@ -45,7 +46,7 @@ class MainLoop:
             avg_user_tp  = 0.0
             all_user_tps = []
 
-        system_tp = self.network.total_system_bits / max_time   # kbit/ms = Gbit/s * 1e-6
+        system_tp = (self.network.total_system_bits / max_time)*1000.0   # kbit/ms = Gbit/s * 1e-6
 
         return {
             "lambda"        : lam,

@@ -26,10 +26,10 @@ SIM_TIME = 100_000   # ms (100 s – długa symulacja dla stabilnych statystyk)
 MAX_WAIT = 50.0      # ms – kryterium z zadania
 
 # ── zakres λ do badania [1/ms] ───────────────────────────────────────────────
-lambdas = [0.001, 0.005, 0.010, 0.020, 0.030, 0.050,
-           0.070, 0.100, 0.120, 0.150, 0.200, 0.300,
-           0.400, 0.500]
-
+#lambdas = [0.001, 0.005, 0.010, 0.020, 0.030, 0.050,
+         #  0.070, 0.100, 0.120, 0.150, 0.200, 0.300,
+          # 0.400, 0.500]
+lambdas = [0.120]
 results = []
 sim = MainLoop()
 
@@ -37,7 +37,7 @@ print(f"{'λ [1/ms]':>10} | {'avg_wait [ms]':>14} | {'sys_tp [kbit/ms]':>17} | {
 print("-" * 85)
 
 for lam in lambdas:
-    np.random.seed(42)
+    np.random.seed(3)
     stats = sim.run(lam=lam, max_time=SIM_TIME)
     results.append(stats)
     marker = " ✔" if stats["avg_wait_ms"] <= MAX_WAIT else ""

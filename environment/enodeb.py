@@ -47,7 +47,7 @@ class eNodeB:
         if ue_id in self.active_ues:
             ue = self.active_ues.pop(ue_id)
             wait_time = current_time - ue.arrival_time
-            avg_tp    = ue.total_bits_received / wait_time if wait_time > 0 else 0.0
+            avg_tp    = (ue.total_bits_received / wait_time)*1000.0 if wait_time > 0 else 0.0
             self.completed_ues.append({
                 "ue_id"     : ue_id,
                 "wait_time" : wait_time,          # ms
@@ -93,7 +93,7 @@ class eNodeB:
                 continue
             total_rate = sum(ue.rb_rates[k] for k in assigned_rbs)  # kbit/s
             # dane wysłane w ciągu S ms = rate * S [kbit]
-            bits_sent = total_rate * self.S
+            bits_sent = total_rate * (self.S/1000.0)
             # aktualizacja średniej przepływności (zawsze, niezależnie od błędu)
             ue.total_bits_received += bits_sent
             # z prawdopodobieństwem (1-epsilon) dane są poprawnie odebrane
