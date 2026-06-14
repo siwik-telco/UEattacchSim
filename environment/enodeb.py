@@ -2,8 +2,8 @@ import random
 from environment.ue import UserEquipment
 
 class eNodeB:
-    K = 10
-    L = 3
+    K = 100
+    L = 10
     S = 1.0
     EPSILON = 0.1
 
