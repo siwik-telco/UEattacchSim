@@ -38,7 +38,7 @@ if __name__ == "__main__":
         sys_tp_reps = []
         usr_tp_reps = []
         completed_reps = []
-        all_user_tps_agg = [] # Do histogramu (łączymy z najlepszej lambdy)
+        all_user_tps_agg = [] # Do histogramu (z najlepszej lambdy)
 
         for rep in range(REPLICATIONS):
             # Dynamiczne, unikalne ziarno dla każdej replikacji
