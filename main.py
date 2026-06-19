@@ -22,7 +22,7 @@ def compute_stats(data_list: list) -> tuple:
     return mean, ci95
 
 if __name__ == "__main__":
-    SIM_TIME = 100_000  # ms - zmiejszone na rzecz replikacji (zwiększ w miarę potrzeb)
+    SIM_TIME = 100_000  # ms - zmiejszone na rzecz replikacji 
     MAX_WAIT = 50.0   # ms
     REPLICATIONS = 10    # Liczba powtórzeń dla każdego punktu (do error barów)
 
