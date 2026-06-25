@@ -222,7 +222,7 @@ Analysis of the transient phase (queue length over time) shows the system stabil
 ### Prerequisites
 
 ```bash
-pip install matplotlib
+pip install -r requirements.txt
 ```
 
 ### Run the full experiment

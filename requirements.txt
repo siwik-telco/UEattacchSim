@@ -1,0 +1,4 @@
+# Mobile Network Downlink Simulator — Python Dependencies
+# All other modules (heapq, itertools, random, math, os) are Python stdlib
+
+matplotlib>=3.7.0
